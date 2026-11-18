@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book Manager</title>
+<style>
+  :root { --bg:#f6f5f1; --card:#fff; --text:#1f2328; --muted:#6b7280; --line:#e5e3dc; --accent:#2f5d50; --danger:#b42318; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16181a; --card:#1f2225; --text:#e8e8e6; --muted:#9aa0a6; --line:#33373b; --accent:#6fb59f; --danger:#f2766b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px; }
+  h1 { margin: 0 0 4px; font-size: 1.6rem; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+  input { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+  button { padding: 9px 14px; border: 0; border-radius: 6px; font: inherit; cursor: pointer; background: var(--accent); color: #fff; }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  button.danger { background: transparent; color: var(--danger); border: 1px solid var(--line); }
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+  #msg { min-height: 1.2em; margin-top: 10px; color: var(--danger); font-size: .9rem; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: .85rem; }
+  td.row-actions { white-space: nowrap; text-align: right; }
+  td.row-actions button { padding: 5px 10px; margin-left: 4px; font-size: .85rem; }
+  .empty { color: var(--muted); text-align: center; padding: 24px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Book Manager</h1>
+  <p class="sub">Add, search, edit and delete books in your collection.</p>
+
+  <section class="card">
+    <h2 id="form-title" style="margin-top:0;font-size:1.1rem">Add a book</h2>
+    <form id="book-form">
+      <div class="grid">
+        <input id="title" placeholder="Title *" required>
+        <input id="author" placeholder="Author *" required>
+        <input id="year" type="number" step="1" placeholder="Year">
+        <input id="genre" placeholder="Genre">
+      </div>
+      <div class="actions">
+        <button type="submit" id="save">Add book</button>
+        <button type="button" id="cancel" class="ghost" hidden>Cancel</button>
+      </div>
+      <div id="msg" role="alert"></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <input id="search" type="search" placeholder="Search by title..." style="margin-bottom:12px">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Title</th><th>Author</th><th>Year</th><th>Genre</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+const API = "/books";
+const $ = (id) => document.getElementById(id);
+let editingId = null;
+
+async function loadBooks() {
+  const q = $("search").value.trim();
+  try {
+    const res = await fetch(q ? `${API}?q=${encodeURIComponent(q)}` : API);
+    renderBooks(await res.json());
+  } catch {
+    $("rows").innerHTML = '<tr><td colspan="5" class="empty">Cannot reach the API. Is the server running?</td></tr>';
+  }
+}
+
+function renderBooks(books) {
+  const tbody = $("rows");
+  tbody.innerHTML = "";
+  if (!books.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No books found.</td></tr>';
+    return;
+  }
+  for (const b of books) {
+    const tr = document.createElement("tr");
+    for (const value of [b.title, b.author, b.year ?? "", b.genre ?? ""]) {
+      const td = document.createElement("td");
+      td.textContent = value; // textContent avoids HTML injection
+      tr.appendChild(td);
+    }
+    const actions = document.createElement("td");
+    actions.className = "row-actions";
+    const edit = document.createElement("button");
+    edit.textContent = "Edit";
+    edit.className = "ghost";
+    edit.onclick = () => startEdit(b);
+    const del = document.createElement("button");
+    del.textContent = "Delete";
+    del.className = "danger";
+    del.onclick = () => removeBook(b);
+    actions.append(edit, del);
+    tr.appendChild(actions);
+    tbody.appendChild(tr);
+  }
+}
+
+function startEdit(b) {
+  editingId = b.id;
+  $("title").value = b.title;
+  $("author").value = b.author;
+  $("year").value = b.year ?? "";
+  $("genre").value = b.genre ?? "";
+  $("form-title").textContent = "Edit book";
+  $("save").textContent = "Save changes";
+  $("cancel").hidden = false;
+  $("title").focus();
+}
+
+function resetForm() {
+  editingId = null;
+  $("book-form").reset();
+  $("form-title").textContent = "Add a book";
+  $("save").textContent = "Add book";
+  $("cancel").hidden = true;
+  $("msg").textContent = "";
+}
+
+async function removeBook(b) {
+  if (!confirm(`Delete "${b.title}"?`)) return;
+  await fetch(`${API}/${b.id}`, { method: "DELETE" });
+  if (editingId === b.id) resetForm();
+  loadBooks();
+}
+
+$("book-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const year = $("year").value;
+  const payload = {
+    title: $("title").value,
+    author: $("author").value,
+    year: year ? Number(year) : undefined,
+    genre: $("genre").value || undefined,
+  };
+  const res = await fetch(editingId ? `${API}/${editingId}` : API, {
+    method: editingId ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    $("msg").textContent = (data.errors || [data.error || "Something went wrong"]).join(", ");
+    return;
+  }
+  resetForm();
+  loadBooks();
+});
+
+$("cancel").addEventListener("click", resetForm);
+$("search").addEventListener("input", loadBooks);
+loadBooks();
+</script>
+</body>
+</html>
